@@ -72,6 +72,18 @@ Example workflow to list todos for a project:
 - **429 Too Many Requests**: Wait for `Retry-After` seconds, then retry.
 - **5xx**: Wait a few seconds and retry once.
 
+## Drafting Messages
+
+When drafting a message for the user to send on Basecamp, always read recent messages in the relevant chat or message board first. Use the conversational context to inform the tone, content, and structure of the draft — the message should read as a natural continuation of the existing conversation.
+
+### Sending Campfire Messages
+
+**CRITICAL**: Always include `"content_type": "text/html"` when posting chat lines. Without it, HTML is escaped and displayed as raw text.
+
+```json
+{"content": "<div>Message here.<br><br>New paragraph.</div>", "content_type": "text/html"}
+```
+
 ## Behavior Guidelines
 
 - When the user asks to see "all projects", list projects from ALL configured accounts
