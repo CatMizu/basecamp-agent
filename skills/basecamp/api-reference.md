@@ -89,8 +89,27 @@ GET    /chats.json                       # List all campfires
 GET    /chats/{id}.json                  # Get campfire
 GET    /chats/{id}/lines.json            # List chat lines (paginated)
 GET    /chats/{id}/lines/{id}.json       # Get specific line
-POST   /chats/{id}/lines.json            # Send message { content: "text" }
+POST   /chats/{id}/lines.json            # Send message (see below)
 DELETE /chats/{id}/lines/{id}.json       # Delete message
+```
+
+### Sending Campfire messages
+
+**IMPORTANT**: To send properly formatted rich text messages, you MUST include `content_type: "text/html"` in the request body. Without it, HTML tags like `<div>` and `<br>` will be rendered as plain text.
+
+```json
+{
+  "content": "<div>Your message here.<br><br>Second paragraph.</div>",
+  "content_type": "text/html"
+}
+```
+
+- With `content_type: "text/html"` → creates `Chat::Lines::RichText` (renders HTML properly)
+- Without `content_type` → creates `Chat::Lines::Text` (HTML tags shown as raw text)
+
+Allowed HTML tags: `div`, `h1`, `br`, `strong`, `em`, `strike`, `a` (with href), `pre`, `ol`, `ul`, `li`, `blockquote`.
+
+```
 ```
 
 ## Comments
