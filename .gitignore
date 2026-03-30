@@ -1,0 +1,8 @@
+# Never commit personal credentials
+.credentials/
+
+# OS files
+.DS_Store
+
+# Node
+node_modules/
