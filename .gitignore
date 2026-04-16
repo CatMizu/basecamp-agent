@@ -1,8 +1,28 @@
-# Never commit personal credentials
-.basecamp/
+# Dependencies
+node_modules/
 
-# OS files
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# SQLite vault — never commit
+vault.db
+vault.db-*
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
 .DS_Store
 
-# Node
-node_modules/
+# Coverage
+coverage/
+
+# Legacy basecamp plugin config (obsolete but ignored for developer safety)
+.basecamp/

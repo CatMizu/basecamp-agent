@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.*
+.git
+.github
+.claude
+**/*.test.ts
+**/*.spec.ts
+vault.db*
