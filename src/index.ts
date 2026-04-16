@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { logger } from './modules/shared/logger.js';
 import { getDb } from './lib/db.js';
 import { AuthModule } from './modules/auth/index.js';
+import { MCPModule } from './modules/mcp/index.js';
 
 async function main(): Promise<void> {
   // Initialize DB early so migrations run before any request arrives.
@@ -25,7 +26,13 @@ async function main(): Promise<void> {
   const authModule = new AuthModule({ baseUri: config.baseUri });
   app.use('/', authModule.getRouter());
 
-  // MCP router is mounted in Commit 4.
+  // MCP (Streamable HTTP + tool handlers).
+  const mcpModule = new MCPModule(
+    { baseUri: config.baseUri },
+    authModule.getProvider(),
+  );
+  app.use('/', mcpModule.getRouter());
+
   const splashLimiter = rateLimit({
     windowMs: 60_000,
     max: 200,

@@ -1,9 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { registerQueryTools } from '../tools/query-tools.js';
+import { registerActionTools } from '../tools/action-tools.js';
 
-/**
- * Scaffold factory. Tools are registered in later commits via
- * registerQueryTools / registerActionTools.
- */
 export interface McpServerWrapper {
   server: McpServer;
   cleanup: () => void;
@@ -15,7 +13,8 @@ export function createMcpServer(): McpServerWrapper {
     version: '0.1.0',
   });
 
-  // Tools registered in src/modules/mcp/tools/{query,action}-tools.ts — wired
-  // up in Commit 4.
+  registerQueryTools(server);
+  registerActionTools(server);
+
   return { server, cleanup: () => {} };
 }
