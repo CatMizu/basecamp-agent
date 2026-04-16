@@ -95,13 +95,16 @@ CREATE INDEX IF NOT EXISTS idx_mcp_installations_client_identity
   ON mcp_installations(client_id, identity_id);
 
 -- Replay protection for /token exchange. Deleted on expiry (TTL 10min).
+-- ON UPDATE CASCADE so that rotating the primary access_token on refresh
+-- doesn't break this FK.
 CREATE TABLE IF NOT EXISTS token_exchanges (
   mcp_auth_code TEXT PRIMARY KEY,
   mcp_access_token TEXT NOT NULL,
   already_used INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL,
-  FOREIGN KEY (mcp_access_token) REFERENCES mcp_installations(access_token) ON DELETE CASCADE
+  FOREIGN KEY (mcp_access_token) REFERENCES mcp_installations(access_token)
+    ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_token_exchanges_expires_at
   ON token_exchanges(expires_at);

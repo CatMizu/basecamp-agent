@@ -90,3 +90,29 @@ export function closeDb(): void {
     _db = undefined;
   }
 }
+
+/**
+ * For tests: point the singleton at a pre-built database. Pass `undefined`
+ * to clear.
+ */
+export function setDbForTesting(db: BetterSqlite3Database | undefined): void {
+  _db = db;
+}
+
+/** For tests: build an in-memory DB, apply the init migration, return it. */
+export function createTestDb(): BetterSqlite3Database {
+  const db = new Database(':memory:');
+  db.pragma('journal_mode = MEMORY');
+  db.pragma('foreign_keys = ON');
+  const fs_ = fs;
+  const migrationPath = path.resolve(migrationsDir(), '001_init.sql');
+  const sql = fs_.readFileSync(migrationPath, 'utf8');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      id TEXT PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    )
+  `);
+  db.exec(sql);
+  return db;
+}

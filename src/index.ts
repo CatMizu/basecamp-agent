@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
 import { logger } from './modules/shared/logger.js';
 import { getDb } from './lib/db.js';
+import { AuthModule } from './modules/auth/index.js';
 
 async function main(): Promise<void> {
   // Initialize DB early so migrations run before any request arrives.
@@ -20,8 +21,11 @@ async function main(): Promise<void> {
   app.use(express.urlencoded({ extended: false }));
   app.use(logger.middleware());
 
-  // Auth and MCP routers are mounted in Commits 3 and 4. The scaffold below
-  // gives a splash page and proves Express + logger + config wire up cleanly.
+  // Auth (Authorization Server + Basecamp OAuth wrapper).
+  const authModule = new AuthModule({ baseUri: config.baseUri });
+  app.use('/', authModule.getRouter());
+
+  // MCP router is mounted in Commit 4.
   const splashLimiter = rateLimit({
     windowMs: 60_000,
     max: 200,
