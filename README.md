@@ -114,6 +114,36 @@ src/
 └── static/styles.css             — splash + picker styles
 ```
 
+## Evaluations
+
+A 10-question `evaluations/basecamp-mcp.xml` (per the `mcp-builder` skill) is
+deferred until the server has been pointed at a real Basecamp sandbox —
+evaluations whose answers can't be verified against live data are of no
+value. To unblock: deploy, run the MCP Inspector against it, hand-craft ten
+`<qa_pair>` entries whose answers are closed/historical facts, then drive
+them through `.claude/skills/mcp-builder/scripts/evaluation.py`.
+
+## Smoke test
+
+`scripts/seed-test-install.ts` inserts a synthetic installation with bearer
+`test-token` so you can hit `/mcp` without walking the full OAuth dance:
+
+```bash
+npm run build
+npx tsx scripts/seed-test-install.ts
+node dist/index.js &
+curl -s -X POST http://localhost:3232/mcp \
+  -H "Authorization: Bearer test-token" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}'
+```
+
+`tools/list` on the same endpoint should return all 14 tools with their
+schemas. Tool invocation will fail (the synthetic `bc-access` is not a real
+Basecamp token), but that proves the MCP transport, auth middleware, and
+Zod schema compilation all work end-to-end.
+
 ## Naming deviation
 
 The Anthropic `mcp-builder` skill recommends `{service}-mcp-server`. This
