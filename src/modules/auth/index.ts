@@ -51,7 +51,7 @@ export class AuthModule {
         resourceServerUrl: new URL('/mcp', this.config.baseUri),
         resourceName: 'Basecamp MCP',
         serviceDocumentationUrl: new URL(
-          'https://github.com/CatMizu/basecamp-mcp',
+          'https://github.com/CatMizu/basecamp-mcp-server',
         ),
         tokenOptions: {
           rateLimit: { windowMs: 5000, limit: 300 },
