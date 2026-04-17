@@ -43,7 +43,7 @@ function loadConfig(): Config {
     },
 
     userAgentContact:
-      process.env.USER_AGENT_CONTACT || 'ops@basecamp-mcp.example',
+      process.env.USER_AGENT_CONTACT || 'ops@basecamp-mcp-server.example',
     vaultDbPath: process.env.VAULT_DB_PATH || './vault.db',
   };
 }
