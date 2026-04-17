@@ -2,52 +2,50 @@
 
 Remote MCP server for [Basecamp 3](https://basecamp.com/). Connect from
 Claude Desktop / Codex / ChatGPT / any MCP client via OAuth — no plugin
-install, no OAuth app credentials for each user.
+install, no per-user OAuth app setup.
 
-One MCP connector maps to **one Basecamp account**. Users with multiple
-accounts register multiple connectors.
+**Live endpoint:** `https://basecamp-mcp.fly.dev/mcp`
 
-## Endpoint
+---
 
-```
-POST https://<your-deployment>/mcp
-```
+## Connect from Claude Desktop
 
-The server advertises itself as an OAuth 2.1 Authorization Server at
-`/.well-known/oauth-authorization-server` and as a Protected Resource at
-`/.well-known/oauth-protected-resource/mcp`. MCP clients that follow those
-discovery specs (Claude Desktop does) can auto-configure without out-of-band
-setup.
+1. Open **Claude Desktop → Settings → Connectors** (or **Integrations**, depending on your version).
+2. Click **Add custom connector**.
+3. Fill in:
+   - **Name:** `Basecamp` (or anything you like)
+   - **URL:** `https://basecamp-mcp.fly.dev/mcp`
+4. Click **Save**. Claude will open your browser to **log in to Basecamp** and authorize the connector.
+5. If your Basecamp account shows you more than one team, you'll see an account-picker page — pick the one you want this connector to use, then click **Continue**.
+6. Done. Ask Claude things like:
+   - "List my Basecamp projects."
+   - "What todos are open on Project X?"
+   - "Summarize the most recent messages on the Launch project message board."
+   - "Post 'standup at 10' to the engineering campfire."
+   - "Create a todo 'Review PR #42' in the QA todolist, due Friday."
 
-## Tools (v1)
+**One connector = one Basecamp account.** If you belong to multiple Basecamp accounts and want Claude to reach all of them, add the connector multiple times (each one will prompt you to pick a different account during setup).
 
-Ten read tools and four write tools, all prefixed `basecamp_`:
+**To reconnect** (e.g., if you signed out of Basecamp or tokens were revoked):
+Claude will prompt automatically when a tool call fails with "reconnect" in the message. Otherwise, remove the connector and add it again.
 
-**Read** — `basecamp_list_projects`, `basecamp_get_project`,
-`basecamp_list_project_people`, `basecamp_list_todolists`,
-`basecamp_list_todos`, `basecamp_get_todo`, `basecamp_list_messages`,
-`basecamp_get_message`, `basecamp_list_campfires`,
-`basecamp_read_campfire_history`.
+---
 
-**Write** — `basecamp_create_todo`, `basecamp_complete_todo`,
-`basecamp_post_message`, `basecamp_post_campfire_message`.
+## What Claude can do
 
-Every tool has:
+**Read** — list projects, inspect a project's people/todos/messages/campfires, read individual todos / messages, read campfire history.
 
-- A Zod `.strict()` input schema and an `outputSchema` so the model can
-  reason about the shape.
-- A `response_format: 'markdown' | 'json'` parameter (default markdown).
-- `limit` / `offset` on list tools; responses include `total`, `count`,
-  `has_more`, `next_offset`.
-- Annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
-  `openWorldHint`) set per MCP convention.
-- Responses capped at `CHARACTER_LIMIT = 25_000` characters — over-limit
-  returns surface `truncated: true` and a hint to paginate.
+**Write** — create a todo, mark a todo complete, post a message to a project's message board, post a campfire chat message.
 
-`basecamp_post_campfire_message` auto-injects `content_type: "text/html"`
-so rich-text formatting actually renders.
+14 tools in total, prefixed `basecamp_`. Responses are capped at 25,000 characters; list tools paginate (`limit` / `offset`).
 
-## Local development
+---
+
+## Self-host / contribute
+
+If you'd rather run your own instance (e.g., on your own Fly.io account, or on any host that can terminate HTTPS):
+
+### Local development
 
 ```bash
 # Node 22
@@ -65,30 +63,39 @@ cp .env.example .env
 npm run dev      # watches src/, listens on :3232
 ```
 
-Test the flow end-to-end with the MCP Inspector:
+For Claude Desktop to reach your local server you need a public tunnel
+(e.g. `ngrok http 3232`); set `BASE_URI` in `.env` to that tunnel URL and
+register the same URL + `/oauth/basecamp/callback` as the OAuth app's
+Redirect URI.
 
-```bash
-npx @modelcontextprotocol/inspector
-# Point it at http://localhost:3232 and walk through /authorize, /token, tools/list.
-```
-
-## Production deploy (Fly.io)
+### Production deploy (Fly.io)
 
 Single machine, SQLite on a mounted volume. `min_machines_running = 1` and
 `auto_stop_machines = off` — if the machine stops the DB is unreachable.
 
 ```bash
+fly apps create <your-app-name>
 fly volumes create basecamp_mcp_data --size 1 --region iad
 fly secrets set \
   BASECAMP_CLIENT_ID=... \
   BASECAMP_CLIENT_SECRET=... \
   USER_AGENT_CONTACT=ops@your-domain.example \
-  BASE_URI=https://basecamp-mcp.fly.dev \
-  VAULT_DB_PATH=/data/vault.db
+  BASE_URI=https://<your-app-name>.fly.dev \
+  VAULT_DB_PATH=/data/vault.db \
+  NODE_ENV=production
 fly deploy
 ```
 
-## Architecture
+Remember to register a Basecamp OAuth app whose Redirect URI is
+`https://<your-app-name>.fly.dev/oauth/basecamp/callback`.
+
+### Contributing
+
+PRs welcome. The `main` branch is protected — open a PR from a fork or a
+topic branch and I'll review. Run `npm test`, `npm run typecheck`, and
+`npm run lint` before opening the PR.
+
+### Architecture
 
 See [docs/oauth-flow.md](docs/oauth-flow.md) for the two-layer OAuth dance
 (AS for MCP clients, OAuth Client to Basecamp) that collapses into a single
@@ -114,16 +121,16 @@ src/
 └── static/styles.css             — splash + picker styles
 ```
 
-## Evaluations
+### Security
 
-A 10-question `evaluations/basecamp-mcp.xml` (per the `mcp-builder` skill) is
-deferred until the server has been pointed at a real Basecamp sandbox —
-evaluations whose answers can't be verified against live data are of no
-value. To unblock: deploy, run the MCP Inspector against it, hand-craft ten
-`<qa_pair>` entries whose answers are closed/historical facts, then drive
-them through `.claude/skills/mcp-builder/scripts/evaluation.py`.
+- SQLite vault stores tokens in plaintext in v1. Fly volumes are LUKS-
+  encrypted at the block level. AES-256-GCM field-level encryption is
+  scoped for v2, along with hash-on-lookup for MCP access tokens.
+- Never log full tokens — `logger.debug` truncates to 8-char prefixes.
+- `User-Agent: BasecampMCP (${USER_AGENT_CONTACT})` on every API call.
+- 50 req / 10s Basecamp rate limit is honored via `Retry-After` on 429.
 
-## Smoke test
+### Smoke test
 
 `scripts/seed-test-install.ts` inserts a synthetic installation with bearer
 `test-token` so you can hit `/mcp` without walking the full OAuth dance:
@@ -140,24 +147,17 @@ curl -s -X POST http://localhost:3232/mcp \
 ```
 
 `tools/list` on the same endpoint should return all 14 tools with their
-schemas. Tool invocation will fail (the synthetic `bc-access` is not a real
-Basecamp token), but that proves the MCP transport, auth middleware, and
-Zod schema compilation all work end-to-end.
+schemas.
 
-## Naming deviation
+### Evaluations
 
-The Anthropic `mcp-builder` skill recommends `{service}-mcp-server`. This
-project is named `basecamp-mcp` to match the Fly app and the repo name;
-semantically it's the same thing.
+A 10-question `evaluations/basecamp-mcp.xml` (per the `mcp-builder` skill) is
+deferred until the server has been pointed at a real Basecamp sandbox. To
+unblock: deploy, run the MCP Inspector against it, hand-craft ten
+`<qa_pair>` entries whose answers are closed/historical facts, then drive
+them through `.claude/skills/mcp-builder/scripts/evaluation.py`.
 
-## Security notes
-
-- SQLite vault stores tokens in plaintext in v1. Fly volumes are LUKS-
-  encrypted at the block level. AES-256-GCM field-level encryption is
-  scoped for v2, along with hash-on-lookup for MCP access tokens.
-- Never log full tokens — `logger.debug` truncates to 8-char prefixes.
-- `User-Agent: BasecampMCP (${USER_AGENT_CONTACT})` on every API call.
-- 50 req / 10s Basecamp rate limit is honored via `Retry-After` on 429.
+---
 
 ## License
 
