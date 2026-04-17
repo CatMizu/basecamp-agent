@@ -14,6 +14,10 @@ dist/
 vault.db
 vault.db-*
 
+# Fly.io config — gitignored so the production hostname isn't published.
+# Copy fly.example.toml to fly.toml and fill in app/volume names.
+fly.toml
+
 # Logs
 *.log
 npm-debug.log*

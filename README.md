@@ -4,7 +4,10 @@ Remote MCP server for [Basecamp 3](https://basecamp.com/). Connect from
 Claude Desktop / Codex / ChatGPT / any MCP client via OAuth — no plugin
 install, no per-user OAuth app setup.
 
-**Live endpoint:** `https://basecamp-mcp-server.fly.dev/mcp`
+The maintainer runs a private deployment for the team. The URL is shared
+out-of-band (Slack/email) — if you need access and don't have it, ask.
+If you'd rather run your own instance, the **Self-host / contribute**
+section below walks through the deploy.
 
 ---
 
@@ -14,7 +17,7 @@ install, no per-user OAuth app setup.
 2. Click **Add custom connector**.
 3. Fill in:
    - **Name:** `Basecamp` (or anything you like)
-   - **URL:** `https://basecamp-mcp-server.fly.dev/mcp`
+   - **URL:** `<your-server-url>/mcp` (ask the maintainer for the URL if you're on the team, or run your own — see below)
 4. Click **Save**. Claude will open your browser to **log in to Basecamp** and authorize the connector.
 5. If your Basecamp account shows you more than one team, you'll see an account-picker page — pick the one you want this connector to use, then click **Continue**.
 6. Done. Ask Claude things like:
@@ -73,21 +76,30 @@ Redirect URI.
 Single machine, SQLite on a mounted volume. `min_machines_running = 1` and
 `auto_stop_machines = off` — if the machine stops the DB is unreachable.
 
+`fly.toml` is gitignored so the production hostname isn't published to a
+public repo. Copy the template and fill in your own app/volume names:
+
 ```bash
-fly apps create <your-app-name>
-fly volumes create basecamp_mcp_server_data --size 1 --region iad
+cp fly.example.toml fly.toml
+# edit fly.toml: set app = "<your-fly-app-name>" and [mounts].source = "<your-fly-volume-name>"
+
+fly apps create <your-fly-app-name>
+fly volumes create <your-fly-volume-name> --size 1 --region iad -a <your-fly-app-name>
 fly secrets set \
   BASECAMP_CLIENT_ID=... \
   BASECAMP_CLIENT_SECRET=... \
   USER_AGENT_CONTACT=ops@your-domain.example \
-  BASE_URI=https://<your-app-name>.fly.dev \
+  BASE_URI=https://<your-fly-app-name>.fly.dev \
   VAULT_DB_PATH=/data/vault.db \
-  NODE_ENV=production
-fly deploy
+  NODE_ENV=production \
+  -a <your-fly-app-name>
+fly deploy -a <your-fly-app-name>
 ```
 
-Remember to register a Basecamp OAuth app whose Redirect URI is
-`https://<your-app-name>.fly.dev/oauth/basecamp/callback`.
+Pick an unguessable app name (e.g., `basecamp-mcp-server-a1b2c3`) if you
+want to use capability-URL access control (share the URL only with
+trusted users). Register a Basecamp OAuth app whose Redirect URI is
+`https://<your-fly-app-name>.fly.dev/oauth/basecamp/callback`.
 
 ### Contributing
 

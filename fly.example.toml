@@ -1,4 +1,8 @@
-app = "basecamp-mcp-server"
+# Template Fly.io config. Copy to fly.toml and fill in `app` + the volume
+# source name before deploying. fly.toml is gitignored so the production
+# hostname isn't published.
+
+app = "<your-fly-app-name>"
 primary_region = "iad"
 
 [build]
@@ -16,6 +20,6 @@ primary_region = "iad"
   cpus = 1
 
 [mounts]
-  source = "basecamp_mcp_server_data"
+  source = "<your-fly-volume-name>"
   destination = "/data"
   initial_size = "1gb"
