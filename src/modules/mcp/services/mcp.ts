@@ -9,7 +9,7 @@ export interface McpServerWrapper {
 
 export function createMcpServer(): McpServerWrapper {
   const server = new McpServer({
-    name: 'basecamp-mcp',
+    name: 'basecamp-mcp-server',
     version: '0.1.0',
   });
 

@@ -1,5 +1,5 @@
 {
-  "name": "basecamp-mcp",
+  "name": "basecamp-mcp-server",
   "version": "0.1.0",
   "description": "Remote MCP server for Basecamp 3 with OAuth-wrapping and SQLite-backed token vault",
   "type": "module",

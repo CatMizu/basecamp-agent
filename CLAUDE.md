@@ -1,4 +1,4 @@
-# basecamp-mcp
+# basecamp-mcp-server
 
 Remote MCP server for Basecamp 3. TypeScript + Express, SQLite token vault
 on a Fly.io volume, Streamable HTTP transport, 14 tools.
@@ -63,6 +63,7 @@ Three modules, one process:
 
 ## Commit discipline
 
-Work on branch `mcp-rewrite` (will merge to `master`). One PR = multiple
-commits (scaffold → auth → tools → docs) so each step is reviewable
-independently.
+`main` is protected — require a PR to merge. Branch from main and open a
+PR from the feature branch. Group related changes into reviewable chunks
+(one PR = one coherent change, or a small sequence of commits like
+scaffold → feature → tests).

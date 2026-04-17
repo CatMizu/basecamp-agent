@@ -1,10 +1,10 @@
-# basecamp-mcp
+# basecamp-mcp-server
 
 Remote MCP server for [Basecamp 3](https://basecamp.com/). Connect from
 Claude Desktop / Codex / ChatGPT / any MCP client via OAuth — no plugin
 install, no per-user OAuth app setup.
 
-**Live endpoint:** `https://basecamp-mcp.fly.dev/mcp`
+**Live endpoint:** `https://basecamp-mcp-server.fly.dev/mcp`
 
 ---
 
@@ -14,7 +14,7 @@ install, no per-user OAuth app setup.
 2. Click **Add custom connector**.
 3. Fill in:
    - **Name:** `Basecamp` (or anything you like)
-   - **URL:** `https://basecamp-mcp.fly.dev/mcp`
+   - **URL:** `https://basecamp-mcp-server.fly.dev/mcp`
 4. Click **Save**. Claude will open your browser to **log in to Basecamp** and authorize the connector.
 5. If your Basecamp account shows you more than one team, you'll see an account-picker page — pick the one you want this connector to use, then click **Continue**.
 6. Done. Ask Claude things like:
@@ -75,7 +75,7 @@ Single machine, SQLite on a mounted volume. `min_machines_running = 1` and
 
 ```bash
 fly apps create <your-app-name>
-fly volumes create basecamp_mcp_data --size 1 --region iad
+fly volumes create basecamp_mcp_server_data --size 1 --region iad
 fly secrets set \
   BASECAMP_CLIENT_ID=... \
   BASECAMP_CLIENT_SECRET=... \
@@ -151,7 +151,7 @@ schemas.
 
 ### Evaluations
 
-A 10-question `evaluations/basecamp-mcp.xml` (per the `mcp-builder` skill) is
+A 10-question `evaluations/basecamp-mcp-server.xml` (per the `mcp-builder` skill) is
 deferred until the server has been pointed at a real Basecamp sandbox. To
 unblock: deploy, run the MCP Inspector against it, hand-craft ten
 `<qa_pair>` entries whose answers are closed/historical facts, then drive

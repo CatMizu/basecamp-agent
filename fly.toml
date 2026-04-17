@@ -1,4 +1,4 @@
-app = "basecamp-mcp"
+app = "basecamp-mcp-server"
 primary_region = "iad"
 
 [build]
@@ -16,6 +16,6 @@ primary_region = "iad"
   cpus = 1
 
 [mounts]
-  source = "basecamp_mcp_data"
+  source = "basecamp_mcp_server_data"
   destination = "/data"
   initial_size = "1gb"
