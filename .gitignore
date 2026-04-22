@@ -26,3 +26,4 @@ coverage/
 
 # Legacy basecamp plugin config (obsolete but ignored for developer safety)
 .basecamp/
+.superpowers/
