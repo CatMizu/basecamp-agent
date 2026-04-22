@@ -14,16 +14,38 @@ const app = new App({ name: 'Basecamp My Plate', version: '0.1.0' });
 
 let lastScope: MyPlateScope = 'open';
 
+const renderError = (message: string, scope: MyPlateScope = lastScope): void => {
+  render(
+    root,
+    { scope, error: { message }, fetchedAt: new Date().toISOString() },
+    callbacks,
+  );
+};
+
+const refetchCurrentScope = (): void => {
+  void app
+    .callServerTool({ name: 'basecamp_my_plate', arguments: { scope: lastScope } })
+    .catch((err: unknown) => {
+      const msg = (err as { message?: string })?.message ?? String(err);
+      renderError(`Refresh failed: ${msg}`);
+    });
+};
+
 const callbacks: RenderCallbacks = {
   onScopeChange: (next) => {
     lastScope = next;
-    void app.callServerTool({ name: 'basecamp_my_plate', arguments: { scope: next } });
+    void app
+      .callServerTool({ name: 'basecamp_my_plate', arguments: { scope: next } })
+      .catch((err: unknown) => {
+        const msg = (err as { message?: string })?.message ?? String(err);
+        renderError(`Couldn't load scope ${next}: ${msg}`, next);
+      });
   },
   onCompleteTodo: (projectId, todoId) => {
-    // Optimistic: remove the row immediately, restore on error.
-    const row = root.querySelector(`.todo[data-todo-id="${todoId}"]`);
-    const placeholder = row?.cloneNode(true) as HTMLElement | undefined;
-    row?.remove();
+    // Optimistic: remove the row; on failure, toast + refetch the current
+    // scope so the server state is the source of truth (avoids fragile
+    // manual DOM restoration that can break the rendered layout).
+    root.querySelector(`.todo[data-todo-id="${todoId}"]`)?.remove();
 
     void app
       .callServerTool({
@@ -31,14 +53,14 @@ const callbacks: RenderCallbacks = {
         arguments: { project_id: projectId, todo_id: todoId },
       })
       .then((result) => {
-        if ((result as { isError?: boolean }).isError && placeholder) {
-          root.prepend(placeholder);
+        if ((result as { isError?: boolean }).isError) {
           toast(`Couldn't complete todo #${todoId}.`);
+          refetchCurrentScope();
         }
       })
       .catch(() => {
-        if (placeholder) root.prepend(placeholder);
         toast(`Couldn't complete todo #${todoId}.`);
+        refetchCurrentScope();
       });
   },
 };
