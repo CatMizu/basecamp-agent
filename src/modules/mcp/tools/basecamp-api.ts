@@ -2,6 +2,11 @@ import { config } from '../../../config.js';
 import { logger } from '../../shared/logger.js';
 import { McpReauthError } from '../../auth/types.js';
 import type { BasecampContext } from './auth-context.js';
+import type {
+  BasecampAssignment,
+  BasecampMyAssignmentsResponse,
+  MyPlateScope,
+} from '../../../lib/types.js';
 
 /** Tool-facing error types. toolError() renders them for the LLM. */
 export class BasecampAuthError extends Error {
@@ -251,4 +256,60 @@ function sanitize(text: string): string {
   const short = text.substring(0, 500);
   // If it looks like JSON, keep it; else strip to a single line.
   return short.replace(/\s+/g, ' ').trim();
+}
+
+// ─── My Plate ────────────────────────────────────────────────────────────
+
+/** `BasecampAssignment` + a `priority` flag derived from the priorities array. */
+export type MyPlateAssignment = BasecampAssignment & { priority: boolean };
+
+const DUE_SCOPES = new Set<MyPlateScope>([
+  'overdue',
+  'due_today',
+  'due_tomorrow',
+  'due_later_this_week',
+  'due_next_week',
+  'due_later',
+]);
+
+/**
+ * Fetch the authenticated user's assignments, scoped by `scope`:
+ *   - "open"      → GET /my/assignments.json             (priorities + non_priorities)
+ *   - "completed" → GET /my/assignments/completed.json   (flat array)
+ *   - any "due_*" → GET /my/assignments/due.json?scope=X (flat array)
+ *
+ * Returns a flat array of BasecampAssignment + {priority} tag. Callers handle
+ * the UI-shape normalization (grouping by bucket/parent).
+ */
+export async function getMyAssignments(
+  ctx: BasecampContext,
+  scope: MyPlateScope,
+): Promise<MyPlateAssignment[]> {
+  if (scope === 'open') {
+    const body = await bcFetch<BasecampMyAssignmentsResponse>(
+      ctx,
+      '/my/assignments.json',
+    );
+    const priorities = (body.priorities ?? []).map((a) => ({ ...a, priority: true }));
+    const rest = (body.non_priorities ?? []).map((a) => ({ ...a, priority: false }));
+    return [...priorities, ...rest];
+  }
+  if (scope === 'completed') {
+    const body = await bcFetch<BasecampAssignment[]>(
+      ctx,
+      '/my/assignments/completed.json',
+    );
+    return (body ?? []).map((a) => ({ ...a, priority: false }));
+  }
+  if (DUE_SCOPES.has(scope)) {
+    const body = await bcFetch<BasecampAssignment[]>(
+      ctx,
+      `/my/assignments/due.json?scope=${scope}`,
+    );
+    return (body ?? []).map((a) => ({ ...a, priority: false }));
+  }
+  // Type narrowing — all MyPlateScope cases handled above.
+  // (Set.has() doesn't narrow, so we assert never here.)
+  const _exhaustive: never = scope as never;
+  throw new Error(`Unknown scope: ${String(_exhaustive)}`);
 }
