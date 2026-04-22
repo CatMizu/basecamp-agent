@@ -17,7 +17,7 @@
 **Create:**
 - `vite.config.ts` — bundles UI into one file
 - `tsconfig.ui.json` — DOM-aware TS config for UI sources
-- `src/modules/mcp/ui/my-plate/index.html` — UI entry
+- `src/modules/mcp/ui/my-plate/my-plate.html` — UI entry (basename drives Vite output)
 - `src/modules/mcp/ui/my-plate/src/main.ts` — App bridge lifecycle
 - `src/modules/mcp/ui/my-plate/src/render.ts` — pure render function
 - `src/modules/mcp/ui/my-plate/src/render.test.ts` — jsdom unit tests
@@ -134,7 +134,7 @@ export default defineConfig({
     outDir: 'dist/ui',
     emptyOutDir: false,
     rollupOptions: {
-      input: resolve(__dirname, 'src/modules/mcp/ui/my-plate/index.html'),
+      input: resolve(__dirname, 'src/modules/mcp/ui/my-plate/my-plate.html'),
     },
   },
 });
@@ -144,7 +144,11 @@ export default defineConfig({
 
 - [ ] **Step 1.6: Create minimal placeholder UI entry files**
 
-Create `src/modules/mcp/ui/my-plate/index.html`:
+The source HTML is named `my-plate.html` (not `index.html`) so Vite's
+`vite-plugin-singlefile` emits `dist/ui/my-plate.html` directly —
+`singlefile` names outputs after the entry's basename.
+
+Create `src/modules/mcp/ui/my-plate/my-plate.html`:
 ```html
 <!DOCTYPE html>
 <html lang="en">
@@ -194,21 +198,10 @@ npm run typecheck && npm run build && ls -la dist/ui/
 Expected:
 - Both typecheck invocations exit 0.
 - `npm run build` exits 0.
-- `dist/ui/` contains `my-plate.html` (or `index.html` renamed by Rollup — see verify step).
+- `dist/ui/my-plate.html` exists (singlefile emits the file under the entry's basename — hence the `my-plate.html` source name).
 - Existing tests still pass: `npm test` → all green.
 
-If the output file isn't named `my-plate.html`, check `dist/ui/` — singlefile plugin names the output after the entry HTML, which is `index.html`. If so, rename at runtime (Task 5's resource loader will look for `my-plate.html`). Fix it now in `vite.config.ts` by setting an explicit output name:
-```ts
-build: {
-  outDir: 'dist/ui',
-  emptyOutDir: false,
-  rollupOptions: {
-    input: resolve(__dirname, 'src/modules/mcp/ui/my-plate/index.html'),
-    output: { entryFileNames: 'my-plate.html' },
-  },
-},
-```
-Note: `entryFileNames` on HTML inputs is not always honored; the reliable path is to rename the source file or symlink. Simplest fix: rename the entry file to `my-plate.html` (same directory) and update the input path accordingly. Do this if and only if Vite emits `index.html`.
+If `dist/ui/my-plate.html` is missing, inspect Vite's stdout: Rollup may have written to a different filename. Verify by listing `dist/ui/` and, if needed, check `vite-plugin-singlefile`'s version-specific output naming docs.
 
 - [ ] **Step 1.9: Commit**
 
@@ -553,16 +546,37 @@ Registers the MCP App tool using `registerAppTool` from ext-apps. Normalizes the
 
 - [ ] **Step 4.1: Write failing tests**
 
+Tests call the pure `handleMyPlate(args, ctx)` function directly — no
+McpServer instantiation, no reaching into SDK private state, no module
+mocking. Fetch is mocked globally, matching the existing `basecamp-api.test.ts`
+pattern (which is ESM-safe — the project runs Jest with
+`NODE_OPTIONS=--experimental-vm-modules`, where CommonJS `require()` and
+module-level `jest.mock` don't work cleanly).
+
 Create `src/modules/mcp/tools/my-plate.test.ts`:
 ```ts
 import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { registerQueryTools } from './query-tools.js';
+import type { BasecampContext } from './auth-context.js';
+import { handleMyPlate } from './query-tools.js';
 import type { MyPlatePayload, MyPlateErrorPayload } from '../../../lib/types.js';
 
 const originalFetch = globalThis.fetch;
 
-function makeResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+function makeCtx(): BasecampContext {
+  return {
+    identityId: 1,
+    accountId: 9999,
+    flowId: 'flow-1',
+    apiBaseUrl: 'https://3.basecampapi.com/9999',
+    getAccessToken: async () => 'bearer-token',
+  };
+}
+
+function makeResponse(
+  body: unknown,
+  status = 200,
+  headers: Record<string, string> = {},
+): Response {
   return {
     status,
     statusText: 'OK',
@@ -572,60 +586,15 @@ function makeResponse(body: unknown, status = 200, headers: Record<string, strin
   } as unknown as Response;
 }
 
-/**
- * Registers tools on a fresh McpServer, captures the basecamp_my_plate handler,
- * and returns a helper that invokes it with the given scope under a mocked ctx.
- */
-function buildHandlerHarness() {
-  const server = new McpServer({ name: 't', version: '0.0.0' });
-  registerQueryTools(server);
-
-  // Reach into the registered tools via any: the SDK doesn't expose a public
-  // "invoke" helper for tests, but registerTool stores handlers on the server.
-  // We mirror the real AuthInfo.extra shape.
-  const srv = server as unknown as {
-    _registeredTools?: Record<string, { callback: (args: unknown, extra: unknown) => unknown }>;
-  };
-  const reg = srv._registeredTools?.['basecamp_my_plate'];
-  if (!reg) throw new Error('basecamp_my_plate not registered');
-
-  return async (args: { scope?: string } = {}) => {
-    const extra = {
-      authInfo: {
-        extra: {
-          identityId: 1,
-          accountId: 9999,
-          flowId: 'flow-1',
-        },
-      },
-    };
-    return reg.callback(args, extra);
-  };
-}
-
-describe('basecamp_my_plate tool', () => {
+describe('handleMyPlate', () => {
   let fetchMock: jest.MockedFunction<typeof fetch>;
 
   beforeEach(() => {
     fetchMock = jest.fn() as unknown as jest.MockedFunction<typeof fetch>;
     globalThis.fetch = fetchMock;
-    // Stub token acquisition path used by getBasecampCtx → getAccessToken.
-    // basecamp-api's ctx.getAccessToken calls getBasecampAccessToken(flowId);
-    // we intercept before the real call by mocking fetch after the token is
-    // requested. For unit tests at this layer we assume the token plumbing
-    // works — integration already covers it.
-    jest
-      .spyOn(
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        require('../../auth/basecamp/client.js'),
-        'getBasecampAccessToken',
-      )
-      .mockResolvedValue('bearer-token' as never);
   });
-
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    jest.restoreAllMocks();
   });
 
   test('default scope "open" returns grouped MyPlatePayload', async () => {
@@ -633,54 +602,37 @@ describe('basecamp_my_plate tool', () => {
       makeResponse({
         priorities: [
           {
-            id: 1,
-            content: 'Ship auth flow',
-            type: 'Todo',
-            app_url: 'u',
-            due_on: '2026-04-22',
-            starts_on: null,
-            completed: false,
+            id: 1, content: 'Ship auth flow', type: 'Todo', app_url: 'u',
+            due_on: '2026-04-22', starts_on: null, completed: false,
             bucket: { id: 10, name: 'Project A', app_url: 'a' },
             parent: { id: 100, title: 'Bugs', app_url: 'l' },
-            assignees: [],
-            comments_count: 0,
-            has_description: false,
+            assignees: [], comments_count: 0, has_description: false,
           },
         ],
         non_priorities: [
           {
-            id: 2,
-            content: 'Doc OAuth',
-            type: 'Todo',
-            app_url: 'u2',
-            due_on: null,
-            starts_on: null,
-            completed: false,
+            id: 2, content: 'Doc OAuth', type: 'Todo', app_url: 'u2',
+            due_on: null, starts_on: null, completed: false,
             bucket: { id: 10, name: 'Project A', app_url: 'a' },
             parent: { id: 101, title: 'Docs', app_url: 'l2' },
-            assignees: [],
-            comments_count: 1,
-            has_description: false,
+            assignees: [], comments_count: 1, has_description: false,
           },
         ],
       }),
     );
 
-    const invoke = buildHandlerHarness();
-    const result = (await invoke()) as {
-      content: Array<{ type: string; text: string }>;
-      structuredContent: MyPlatePayload;
-      isError?: boolean;
-    };
+    const result = await handleMyPlate({}, makeCtx());
 
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent.scope).toBe('open');
-    expect(result.structuredContent.priorities).toHaveLength(1);
-    expect(result.structuredContent.priorities[0].id).toBe(1);
-    expect(result.structuredContent.groups).toHaveLength(1);
-    expect(result.structuredContent.groups[0].bucketName).toBe('Project A');
-    expect(result.structuredContent.groups[0].lists).toHaveLength(2);
-    expect(result.content[0].text).toMatch(/open.*2 items.*1 priorit/i);
+    const sc = result.structuredContent as unknown as MyPlatePayload;
+    expect(sc.scope).toBe('open');
+    expect(sc.priorities).toHaveLength(1);
+    expect(sc.priorities[0].id).toBe(1);
+    expect(sc.groups).toHaveLength(1);
+    expect(sc.groups[0].bucketName).toBe('Project A');
+    expect(sc.groups[0].lists).toHaveLength(2);
+    const firstContent = result.content?.[0] as { text: string } | undefined;
+    expect(firstContent?.text).toMatch(/open.*2 items.*1 priorit/i);
   });
 
   test('non-todo types are filtered and counted in filteredNonTodoCount', async () => {
@@ -689,72 +641,51 @@ describe('basecamp_my_plate tool', () => {
         priorities: [],
         non_priorities: [
           {
-            id: 1,
-            content: 'step',
-            type: 'CardTable::Card::Step',
-            app_url: 'u',
-            due_on: null,
-            starts_on: null,
-            completed: false,
+            id: 1, content: 'step', type: 'CardTable::Card::Step',
+            app_url: 'u', due_on: null, starts_on: null, completed: false,
             bucket: { id: 10, name: 'A', app_url: '' },
             parent: { id: 1, title: 'L', app_url: '' },
-            assignees: [],
-            comments_count: 0,
-            has_description: false,
+            assignees: [], comments_count: 0, has_description: false,
           },
           {
-            id: 2,
-            content: 'todo',
-            type: 'Todo',
-            app_url: 'u',
-            due_on: null,
-            starts_on: null,
-            completed: false,
+            id: 2, content: 'todo', type: 'Todo',
+            app_url: 'u', due_on: null, starts_on: null, completed: false,
             bucket: { id: 10, name: 'A', app_url: '' },
             parent: { id: 1, title: 'L', app_url: '' },
-            assignees: [],
-            comments_count: 0,
-            has_description: false,
+            assignees: [], comments_count: 0, has_description: false,
           },
         ],
       }),
     );
-    const invoke = buildHandlerHarness();
-    const result = (await invoke()) as {
-      structuredContent: MyPlatePayload;
-    };
-    expect(result.structuredContent.filteredNonTodoCount).toBe(1);
-    expect(result.structuredContent.groups[0].lists[0].todos).toHaveLength(1);
-    expect(result.structuredContent.groups[0].lists[0].todos[0].id).toBe(2);
+    const result = await handleMyPlate({}, makeCtx());
+    const sc = result.structuredContent as unknown as MyPlatePayload;
+    expect(sc.filteredNonTodoCount).toBe(1);
+    expect(sc.groups[0].lists[0].todos).toHaveLength(1);
+    expect(sc.groups[0].lists[0].todos[0].id).toBe(2);
   });
 
-  test('scope=overdue hits the due.json endpoint', async () => {
+  test('scope "overdue" hits the due.json endpoint', async () => {
     fetchMock.mockResolvedValueOnce(makeResponse([]));
-    const invoke = buildHandlerHarness();
-    await invoke({ scope: 'overdue' });
+    await handleMyPlate({ scope: 'overdue' }, makeCtx());
     expect(fetchMock.mock.calls[0][0]).toMatch(/due\.json\?scope=overdue$/);
   });
 
   test('BasecampApiError renders MyPlateErrorPayload as structuredContent', async () => {
     fetchMock.mockResolvedValueOnce(makeResponse({ error: 'boom' }, 500));
-    const invoke = buildHandlerHarness();
-    const result = (await invoke()) as {
-      isError?: boolean;
-      content: Array<{ text: string }>;
-      structuredContent: MyPlateErrorPayload;
-    };
+    const result = await handleMyPlate({}, makeCtx());
+    const sc = result.structuredContent as unknown as MyPlateErrorPayload;
     expect(result.isError).toBe(true);
-    expect(result.structuredContent.error).toBeDefined();
-    expect(result.structuredContent.error.message).toMatch(/.+/);
+    expect(sc.error).toBeDefined();
+    expect(sc.error.message).toMatch(/.+/);
   });
 
   test('429 surfaces retryAfterSec on the error payload', async () => {
     fetchMock.mockResolvedValueOnce(
       makeResponse({ error: 'rate' }, 429, { 'Retry-After': '30' }),
     );
-    const invoke = buildHandlerHarness();
-    const result = (await invoke()) as { structuredContent: MyPlateErrorPayload };
-    expect(result.structuredContent.error.retryAfterSec).toBe(30);
+    const result = await handleMyPlate({}, makeCtx());
+    const sc = result.structuredContent as unknown as MyPlateErrorPayload;
+    expect(sc.error.retryAfterSec).toBe(30);
   });
 });
 ```
@@ -765,7 +696,7 @@ Run:
 ```bash
 npm test -- tools/my-plate.test.ts
 ```
-Expected: FAIL — `basecamp_my_plate not registered`.
+Expected: FAIL — `handleMyPlate is not exported` (or similar import error).
 
 - [ ] **Step 4.3: Implement the tool**
 
@@ -907,25 +838,62 @@ export function toMyPlateError(
 }
 ```
 
-Now register the tool. Modify `src/modules/mcp/tools/query-tools.ts`:
+Now modify `src/modules/mcp/tools/query-tools.ts`.
 
-At the top (after existing imports), add:
+Add to the top (after existing imports):
 ```ts
 import { registerAppTool } from '@modelcontextprotocol/ext-apps/server';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { getMyAssignments } from './basecamp-api.js';
 import {
   normalizeMyPlate,
   myPlateSummary,
   toMyPlateError,
 } from './utils.js';
+import type { BasecampContext } from './auth-context.js';
 import type { MyPlateScope } from '../../../lib/types.js';
 
 const MY_PLATE_RESOURCE_URI = 'ui://basecamp/my-plate';
 ```
 
-At the very end of `registerQueryTools` (before its closing brace), add the new tool registration:
+Export the pure handler (above `registerQueryTools`, at module scope so tests
+can import it directly):
+```ts
+/**
+ * Pure handler for basecamp_my_plate. Takes args + a constructed
+ * BasecampContext, returns a CallToolResult. Exported so tests can call it
+ * without instantiating an McpServer or reaching into SDK internals. The
+ * registered MCP tool handler is a thin wrapper that derives `ctx` from
+ * `extra.authInfo.extra`.
+ */
+export async function handleMyPlate(
+  args: { scope?: MyPlateScope },
+  ctx: BasecampContext,
+): Promise<CallToolResult> {
+  const scope: MyPlateScope = args.scope ?? 'open';
+  try {
+    const raw = await getMyAssignments(ctx, scope);
+    const payload = normalizeMyPlate(raw, scope);
+    return {
+      content: [{ type: 'text' as const, text: myPlateSummary(payload) }],
+      structuredContent: payload as unknown as Record<string, unknown>,
+    };
+  } catch (err) {
+    return toMyPlateError(err, scope).result;
+  }
+}
+```
+
+At the very end of `registerQueryTools` (before its closing brace), add the
+tool registration:
 ```ts
   // ─── basecamp_my_plate (MCP App) ─────────────────────────────────────
+  //
+  // No outputSchema: MyPlatePayload has a deeply-nested, partially-recursive
+  // shape (groups → lists → todos) that's cumbersome to express in zod.
+  // Type-level enforcement + the consuming UI treating it as a contract is
+  // sufficient for v1. Other tools in this file declare outputSchemas for
+  // flat return shapes; we deviate intentionally here.
   registerAppTool(
     server,
     'basecamp_my_plate',
@@ -968,18 +936,8 @@ Examples:
       _meta: { ui: { resourceUri: MY_PLATE_RESOURCE_URI } },
     },
     async (args, extra) => {
-      const { scope = 'open' } = args as { scope?: MyPlateScope };
-      try {
-        const ctx = getBasecampCtx(extra.authInfo?.extra);
-        const raw = await getMyAssignments(ctx, scope);
-        const payload = normalizeMyPlate(raw, scope);
-        return {
-          content: [{ type: 'text' as const, text: myPlateSummary(payload) }],
-          structuredContent: payload as unknown as Record<string, unknown>,
-        };
-      } catch (err) {
-        return toMyPlateError(err, scope).result;
-      }
+      const ctx = getBasecampCtx(extra.authInfo?.extra);
+      return handleMyPlate(args as { scope?: MyPlateScope }, ctx);
     },
   );
 ```
@@ -990,7 +948,7 @@ Run:
 ```bash
 npm test -- tools/my-plate.test.ts
 ```
-Expected: all pass. If a harness test fails because `_registeredTools` isn't exposed at that key on the SDK version in use, inspect the server instance in the first failing test, find the equivalent internal map (likely `_registeredTools` or `_tools`), and update the harness' reach-in accordingly. Do not change the registration code.
+Expected: all 5 tests pass.
 
 - [ ] **Step 4.5: Run the full test suite**
 
@@ -1701,9 +1659,9 @@ function toast(msg: string): void {
 app.connect();
 ```
 
-- [ ] **Step 7.2: Update `index.html` to include the stylesheet**
+- [ ] **Step 7.2: Update `my-plate.html` to include the stylesheet**
 
-Replace `src/modules/mcp/ui/my-plate/index.html`:
+Replace `src/modules/mcp/ui/my-plate/my-plate.html`:
 ```html
 <!DOCTYPE html>
 <html lang="en">
