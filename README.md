@@ -37,7 +37,43 @@ Claude will prompt automatically when a tool call fails with "reconnect" in the 
 
 **Write** — create a todo, mark a todo complete, post a message to a project's message board, post a campfire chat message.
 
-14 tools in total, prefixed `basecamp_`. Responses are capped at 25,000 characters; list tools paginate (`limit` / `offset`).
+**Interactive** — `basecamp_my_plate` renders the authenticated user's assigned todos across all projects as an [MCP App](https://modelcontextprotocol.io/extensions/apps/overview) (sandboxed iframe UI) with scope tabs, priority pinning, and inline complete. See [MCP App: `basecamp_my_plate`](#mcp-app-basecamp_my_plate).
+
+15 tools in total, prefixed `basecamp_`. Responses are capped at 25,000 characters; list tools paginate (`limit` / `offset`).
+
+---
+
+## MCP App: `basecamp_my_plate`
+
+`basecamp_my_plate` is an interactive MCP App tool (spec
+[MCP Apps 2026-01-26](https://modelcontextprotocol.io/extensions/apps/overview)).
+When invoked on a compatible host (Claude Desktop paid plan, Claude.ai, or the
+[`ext-apps` basic-host](https://github.com/modelcontextprotocol/ext-apps/tree/main/examples/basic-host)),
+the host mounts a sandboxed iframe showing the authenticated user's open todos grouped by
+project. Priorities are pinned at the top, scope tabs switch between Open / Completed /
+Overdue / Due today / …, and clicking a todo's checkbox dispatches `basecamp_complete_todo`
+back through the host.
+
+**Scopes:** `open` (default), `completed`, `overdue`, `due_today`, `due_tomorrow`,
+`due_later_this_week`, `due_next_week`, `due_later`.
+
+**UI bundle:** built by `npm run build:ui` (Vite + `vite-plugin-singlefile`) to
+`dist/ui/my-plate.html` and served as the resource `ui://basecamp/my-plate`. `npm run build`
+builds both the server and the UI.
+
+**Local smoke test:** run the server, then point the basic-host at `http://localhost:3232/mcp`:
+
+```bash
+git clone https://github.com/modelcontextprotocol/ext-apps.git /tmp/ext-apps
+cd /tmp/ext-apps/examples/basic-host
+npm install
+SERVERS='["http://localhost:3232/mcp"]' npm start  # basic-host UI on :8080
+```
+
+For a remote MCP client (Claude Desktop, Claude.ai), expose the local server over the public
+internet (ngrok / cloudflared), set `BASE_URI` to the tunnel URL, register the same URL +
+`/oauth/basecamp/callback` as the Basecamp OAuth app's redirect URI, and add your server as
+a [custom connector](https://support.anthropic.com/en/articles/11175166).
 
 ---
 
