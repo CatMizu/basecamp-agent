@@ -135,3 +135,87 @@ export interface BasecampAuthorizationResponse {
     app_href: string;
   }>;
 }
+
+// ─── /my/assignments.json (MCP App: basecamp_my_plate) ──────────────────
+// NOTE: Everything below is also consumed by the UI bundle (tsconfig.ui.json
+// includes this file). Keep it UI-safe: no node-only imports, no runtime
+// code — pure type declarations only.
+
+/** Shape of one entry in /my/assignments.json priorities/non_priorities. */
+export interface BasecampAssignment {
+  id: number;
+  content: string;
+  type: string; // "todo" | "Todo" | "CardTable::Card::Step" | …
+  app_url: string;
+  due_on: string | null;
+  starts_on: string | null;
+  completed: boolean;
+  bucket: { id: number; name: string; app_url: string };
+  parent: { id: number; title: string; app_url: string };
+  assignees: Array<{ id: number; name: string }>;
+  comments_count: number;
+  has_description: boolean;
+}
+
+export interface BasecampMyAssignmentsResponse {
+  priorities: BasecampAssignment[];
+  non_priorities: BasecampAssignment[];
+}
+
+/** Scopes accepted by basecamp_my_plate — mirrors the Basecamp endpoints. */
+export type MyPlateScope =
+  | 'open'
+  | 'completed'
+  | 'overdue'
+  | 'due_today'
+  | 'due_tomorrow'
+  | 'due_later_this_week'
+  | 'due_next_week'
+  | 'due_later';
+
+/** Normalized todo used by the rendered payload. */
+export interface NormalizedTodo {
+  id: number;
+  type: string;
+  content: string;
+  dueOn: string | null;
+  completed: boolean;
+  priority: boolean;
+  commentsCount: number;
+  appUrl: string;
+  assignees: Array<{ id: number; name: string }>;
+  /** project_id — derived from bucket.id, used to invoke basecamp_complete_todo. */
+  projectId: number;
+}
+
+export interface NormalizedList {
+  listId: number;
+  title: string;
+  appUrl: string;
+  todos: NormalizedTodo[];
+}
+
+export interface NormalizedGroup {
+  bucketId: number;
+  bucketName: string;
+  appUrl: string;
+  lists: NormalizedList[];
+}
+
+/** Payload produced by basecamp_my_plate; consumed by the UI renderer. */
+export interface MyPlatePayload {
+  scope: MyPlateScope;
+  priorities: NormalizedTodo[];
+  groups: NormalizedGroup[];
+  /** Count of items surfaced by /my/assignments that were filtered out
+   *  (non-"todo" types; e.g. card steps). For the LLM's text summary. */
+  filteredNonTodoCount: number;
+  fetchedAt: string; // ISO
+}
+
+/** Tool error surface — populated instead of groups/priorities on API failure. */
+export interface MyPlateErrorPayload {
+  scope: MyPlateScope;
+  error: { message: string; retryAfterSec?: number };
+  fetchedAt: string;
+}

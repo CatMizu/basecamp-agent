@@ -7,7 +7,9 @@ import {
   BasecampAuthError,
   BasecampNotFoundError,
   BasecampRateLimitError,
+  getMyAssignments,
 } from './basecamp-api.js';
+import type { BasecampMyAssignmentsResponse } from '../../../lib/types.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -139,5 +141,94 @@ describe('basecamp-api', () => {
     // We offset=2, limit=3: skip first 2, take next 3 (items 3,4,5).
     expect(res.items.map((x) => x.id)).toEqual([3, 4, 5]);
     expect(res.hasMore).toBe(true);
+  });
+});
+
+describe('getMyAssignments', () => {
+  let fetchMock: jest.MockedFunction<typeof fetch>;
+
+  beforeEach(() => {
+    fetchMock = jest.fn() as unknown as jest.MockedFunction<typeof fetch>;
+    globalThis.fetch = fetchMock;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const sampleTodo = {
+    id: 1,
+    content: 'Ship auth flow',
+    type: 'Todo',
+    app_url: 'https://3.basecamp.com/9999/buckets/1/todos/1',
+    due_on: '2026-04-22',
+    starts_on: null,
+    completed: false,
+    bucket: { id: 10, name: 'Basecamp MCP Server', app_url: 'b' },
+    parent: { id: 100, title: 'Bugs', app_url: 'l' },
+    assignees: [{ id: 42, name: 'Me' }],
+    comments_count: 3,
+    has_description: false,
+  };
+
+  test('scope "open" hits /my/assignments.json and flattens priorities+non_priorities', async () => {
+    const body: BasecampMyAssignmentsResponse = {
+      priorities: [{ ...sampleTodo, id: 1 }],
+      non_priorities: [{ ...sampleTodo, id: 2 }],
+    };
+    fetchMock.mockResolvedValueOnce(makeResponse({ body }));
+    const out = await getMyAssignments(makeCtx(), 'open');
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://3.basecampapi.com/9999/my/assignments.json',
+    );
+    expect(out.map((a) => a.id)).toEqual([1, 2]);
+    expect(out[0].priority).toBe(true);
+    expect(out[1].priority).toBe(false);
+  });
+
+  test('scope "completed" hits /my/assignments/completed.json; all priority=false', async () => {
+    fetchMock.mockResolvedValueOnce(
+      makeResponse({ body: [{ ...sampleTodo, completed: true }] }),
+    );
+    const out = await getMyAssignments(makeCtx(), 'completed');
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://3.basecampapi.com/9999/my/assignments/completed.json',
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].priority).toBe(false);
+    expect(out[0].completed).toBe(true);
+  });
+
+  test('scope "overdue" hits /my/assignments/due.json?scope=overdue', async () => {
+    fetchMock.mockResolvedValueOnce(makeResponse({ body: [sampleTodo] }));
+    await getMyAssignments(makeCtx(), 'overdue');
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://3.basecampapi.com/9999/my/assignments/due.json?scope=overdue',
+    );
+  });
+
+  test('scope "due_today" hits /my/assignments/due.json?scope=due_today', async () => {
+    fetchMock.mockResolvedValueOnce(makeResponse({ body: [] }));
+    await getMyAssignments(makeCtx(), 'due_today');
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://3.basecampapi.com/9999/my/assignments/due.json?scope=due_today',
+    );
+  });
+
+  test('preserves raw Basecamp fields on each normalized assignment', async () => {
+    fetchMock.mockResolvedValueOnce(
+      makeResponse({
+        body: {
+          priorities: [],
+          non_priorities: [sampleTodo],
+        } as BasecampMyAssignmentsResponse,
+      }),
+    );
+    const [a] = await getMyAssignments(makeCtx(), 'open');
+    expect(a.id).toBe(1);
+    expect(a.content).toBe('Ship auth flow');
+    expect(a.bucket.id).toBe(10);
+    expect(a.parent.id).toBe(100);
+    expect(a.assignees).toEqual([{ id: 42, name: 'Me' }]);
+    expect(a.priority).toBe(false);
   });
 });

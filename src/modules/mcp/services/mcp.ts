@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerQueryTools } from '../tools/query-tools.js';
 import { registerActionTools } from '../tools/action-tools.js';
+import { registerUiResources } from '../tools/resources.js';
 
 export interface McpServerWrapper {
   server: McpServer;
@@ -15,6 +16,7 @@ export function createMcpServer(): McpServerWrapper {
 
   registerQueryTools(server);
   registerActionTools(server);
+  registerUiResources(server);
 
   return { server, cleanup: () => {} };
 }

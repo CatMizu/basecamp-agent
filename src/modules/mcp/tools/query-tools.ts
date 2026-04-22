@@ -9,12 +9,17 @@ import type {
   BasecampProject,
   BasecampTodo,
   BasecampTodolist,
+  MyPlateScope,
 } from '../../../lib/types.js';
 import {
   bcFetch,
   bcFetchOffsetLimit,
+  getMyAssignments,
 } from './basecamp-api.js';
 import { getBasecampCtx } from './auth-context.js';
+import type { BasecampContext } from './auth-context.js';
+import { registerAppTool } from '@modelcontextprotocol/ext-apps/server';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
   buildResult,
   findDock,
@@ -27,10 +32,15 @@ import {
   formatProjectSummary,
   formatTodo,
   formatTodolist,
+  myPlateSummary,
+  normalizeMyPlate,
   paginate,
   plainText,
+  toMyPlateError,
   toolError,
 } from './utils.js';
+
+const MY_PLATE_RESOURCE_URI = 'ui://basecamp/my-plate';
 
 const paginationSchema = {
   limit: z
@@ -58,6 +68,28 @@ const detailResponseFormat = {
     .default(ResponseFormat.MARKDOWN)
     .describe('"markdown" for human-readable, "json" for programmatic.'),
 };
+
+/**
+ * Pure handler for basecamp_my_plate. Takes args + a constructed
+ * BasecampContext, returns a CallToolResult. Exported so tests can call it
+ * without instantiating an McpServer or reaching into SDK internals.
+ */
+export async function handleMyPlate(
+  args: { scope?: MyPlateScope },
+  ctx: BasecampContext,
+): Promise<CallToolResult> {
+  const scope: MyPlateScope = args.scope ?? 'open';
+  try {
+    const raw = await getMyAssignments(ctx, scope);
+    const payload = normalizeMyPlate(raw, scope);
+    return {
+      content: [{ type: 'text' as const, text: myPlateSummary(payload) }],
+      structuredContent: payload as unknown as Record<string, unknown>,
+    };
+  } catch (err) {
+    return toMyPlateError(err, scope);
+  }
+}
 
 export function registerQueryTools(server: McpServer): void {
   // ─── basecamp_list_projects ─────────────────────────────────────────
@@ -753,6 +785,59 @@ Examples:
       } catch (err) {
         return toolError(err);
       }
+    },
+  );
+
+  // ─── basecamp_my_plate (MCP App) ─────────────────────────────────────
+  //
+  // No outputSchema: MyPlatePayload has a deeply-nested, partially-recursive
+  // shape (groups → lists → todos) that's cumbersome to express in zod.
+  // Type-level enforcement + the consuming UI treating it as a contract is
+  // sufficient for v1.
+  registerAppTool(
+    server,
+    'basecamp_my_plate',
+    {
+      title: "What's on my plate",
+      description: `Show todos assigned to the authenticated user across all projects as an interactive MCP App.
+
+Args:
+  - scope ('open'|'completed'|'overdue'|'due_today'|'due_tomorrow'|'due_later_this_week'|'due_next_week'|'due_later'), default 'open'.
+
+Returns:
+  MCP App UI (grouped by project, priorities pinned, clickable scope tabs, inline complete)
+  plus a text summary for transcript use.
+
+Examples:
+  - "What's on my plate?" → scope=open
+  - "What's overdue?" → scope=overdue
+  - "What did I finish this week?" → scope=completed`,
+      inputSchema: z
+        .object({
+          scope: z
+            .enum([
+              'open',
+              'completed',
+              'overdue',
+              'due_today',
+              'due_tomorrow',
+              'due_later_this_week',
+              'due_next_week',
+              'due_later',
+            ])
+            .default('open')
+            .describe("Assignment bucket to query; 'open' is all active, others map to Basecamp due/completed endpoints."),
+        })
+        .strict().shape,
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+      _meta: { ui: { resourceUri: MY_PLATE_RESOURCE_URI } },
+    },
+    async (args, extra) => {
+      const ctx = getBasecampCtx(extra.authInfo?.extra);
+      return handleMyPlate(args as { scope?: MyPlateScope }, ctx);
     },
   );
 }
