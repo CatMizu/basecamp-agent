@@ -136,7 +136,7 @@ export interface BasecampAuthorizationResponse {
   }>;
 }
 
-// ─── /my/assignments.json (MCP App: basecamp_my_plate) ──────────────────
+// ─── /my/assignments.json ────────────────────────────────────────────────
 // NOTE: Everything below is also consumed by the UI bundle (tsconfig.ui.json
 // includes this file). Keep it UI-safe: no node-only imports, no runtime
 // code — pure type declarations only.
@@ -162,7 +162,7 @@ export interface BasecampMyAssignmentsResponse {
   non_priorities: BasecampAssignment[];
 }
 
-/** Scopes accepted by basecamp_my_plate — mirrors the Basecamp endpoints. */
+/** Scopes accepted by Basecamp's /my/assignments endpoints. */
 export type MyPlateScope =
   | 'open'
   | 'completed'
@@ -173,49 +173,121 @@ export type MyPlateScope =
   | 'due_next_week'
   | 'due_later';
 
-/** Normalized todo used by the rendered payload. */
-export interface NormalizedTodo {
+// ─── /my/readings.json ───────────────────────────────────────────────────
+
+/** Section categories returned by /my/readings.json. */
+export type BasecampReadingSection =
+  | 'inbox'
+  | 'chats'
+  | 'pings'
+  | 'mentions'
+  | 'remembered';
+
+/** One notification from /my/readings.json (unreads/reads/memories). Only
+ *  types the fields we consume; full shape has ~20 fields we ignore. */
+export interface BasecampReading {
   id: number;
-  type: string;
-  content: string;
-  dueOn: string | null;
-  completed: boolean;
-  priority: boolean;
-  commentsCount: number;
-  appUrl: string;
-  assignees: Array<{ id: number; name: string }>;
-  /** project_id — derived from bucket.id, used to invoke basecamp_complete_todo. */
-  projectId: number;
-}
-
-export interface NormalizedList {
-  listId: number;
+  created_at: string;
+  updated_at: string;
+  section: BasecampReadingSection;
+  unread_count: number;
+  unread_at: string | null;
+  read_at: string | null;
+  readable_sgid: string;
+  readable_identifier?: string;
   title: string;
+  type: string;
+  bucket_name: string;
+  creator: {
+    id: number;
+    name: string;
+    email_address?: string;
+  };
+  content_excerpt?: string;
+  app_url: string;
+}
+
+export interface BasecampReadingsResponse {
+  unreads: BasecampReading[];
+  reads: BasecampReading[];
+  memories: BasecampReading[];
+}
+
+// ─── Dashboard (basecamp_my_plate MCP App) ───────────────────────────────
+
+export interface DashboardKpi {
+  overdue: { count: number; oldestDaysLate: number | null };
+  dueToday: { count: number; priorityCount: number };
+  unread: { count: number; distinctProjects: number };
+  waiting: { count: number; oldestHoursAgo: number | null };
+}
+
+export interface DashboardTodayItem {
+  id: number;
+  content: string;
   appUrl: string;
-  todos: NormalizedTodo[];
+  priority: boolean;
+  projectName: string;
+  /** Display string for the right column; always the ISO `due_on` today. */
+  dueLabel: string;
 }
 
-export interface NormalizedGroup {
-  bucketId: number;
-  bucketName: string;
+export interface DashboardUnreadBreakdown {
+  mentions: number;
+  pings: number;
+  chats: number;
+  messages: number; // section === 'inbox'
+  oldest: {
+    title: string;
+    hoursAgo: number;
+    creator: string;
+    project: string;
+    section: BasecampReadingSection;
+  } | null;
+}
+
+export interface DashboardProjectStat {
+  id: number;
+  name: string;
+  openCount: number;
+  urgentCount: number; // overdue ∪ due_today intersecting this project
+}
+
+export interface DashboardUpcomingDay {
+  /** ISO date (YYYY-MM-DD) in the viewer's local day alignment. */
+  date: string;
+  /** Lowercase weekday abbrev (mon/tue/...) or 'today' for today. */
+  label: string;
+  count: number;
+  priorityCount: number;
+}
+
+export type DashboardWaitingSeverity = 'red' | 'orange' | 'amber';
+
+export interface DashboardWaitingItem {
+  who: string;
+  what: string;
+  projectName: string;
+  section: 'mentions' | 'pings';
+  hoursAgo: number;
+  severity: DashboardWaitingSeverity;
   appUrl: string;
-  lists: NormalizedList[];
+  readableSgid: string;
 }
 
-/** Payload produced by basecamp_my_plate; consumed by the UI renderer. */
-export interface MyPlatePayload {
-  scope: MyPlateScope;
-  priorities: NormalizedTodo[];
-  groups: NormalizedGroup[];
-  /** Count of items surfaced by /my/assignments that were filtered out
-   *  (non-"todo" types; e.g. card steps). For the LLM's text summary. */
-  filteredNonTodoCount: number;
-  fetchedAt: string; // ISO
+/** Payload produced by basecamp_my_plate; consumed by the dashboard UI. */
+export interface DashboardPayload {
+  generatedAt: string; // ISO
+  kpi: DashboardKpi;
+  today: DashboardTodayItem[];
+  unreadBreakdown: DashboardUnreadBreakdown;
+  projects: DashboardProjectStat[]; // sorted desc by openCount
+  upcoming: DashboardUpcomingDay[]; // exactly 7 entries, today + next 6
+  waitingOnYou: DashboardWaitingItem[]; // top 5
 }
 
-/** Tool error surface — populated instead of groups/priorities on API failure. */
-export interface MyPlateErrorPayload {
-  scope: MyPlateScope;
+/** Error fallback: rendered as the error card when buildDashboard throws. */
+export interface DashboardErrorPayload {
   error: { message: string; retryAfterSec?: number };
-  fetchedAt: string;
+  generatedAt: string;
 }

@@ -12,12 +12,6 @@ import type {
   BasecampProject,
   BasecampTodo,
   BasecampTodolist,
-  MyPlatePayload,
-  MyPlateErrorPayload,
-  MyPlateScope,
-  NormalizedTodo,
-  NormalizedGroup,
-  NormalizedList,
 } from '../../../lib/types.js';
 import {
   BasecampApiError,
@@ -25,7 +19,6 @@ import {
   BasecampNotFoundError,
   BasecampRateLimitError,
 } from './basecamp-api.js';
-import type { MyPlateAssignment } from './basecamp-api.js';
 
 // ─── Tool-result shaping ────────────────────────────────────────────────
 
@@ -254,117 +247,3 @@ export function findDock(
   return project.dock.find((d) => d.name === name);
 }
 
-// ─── My Plate ────────────────────────────────────────────────────────────
-
-/**
- * Group MyPlateAssignments into {priorities, groups[{lists[{todos}]}]}.
- * Filters out non-"Todo" types; returns the filtered count.
- */
-export function normalizeMyPlate(
-  assignments: MyPlateAssignment[],
-  scope: MyPlateScope,
-): MyPlatePayload {
-  const todos: MyPlateAssignment[] = [];
-  let filteredNonTodoCount = 0;
-  for (const a of assignments) {
-    if (a.type === 'Todo' || a.type === 'todo') {
-      todos.push(a);
-    } else {
-      filteredNonTodoCount += 1;
-    }
-  }
-
-  const toNormalized = (a: MyPlateAssignment): NormalizedTodo => ({
-    id: a.id,
-    type: a.type,
-    content: a.content,
-    dueOn: a.due_on,
-    completed: a.completed,
-    priority: a.priority,
-    commentsCount: a.comments_count,
-    appUrl: a.app_url,
-    assignees: a.assignees,
-    projectId: a.bucket.id,
-  });
-
-  const priorities = todos.filter((a) => a.priority).map(toNormalized);
-
-  // Group by bucket, then by parent (todolist).
-  const buckets = new Map<number, NormalizedGroup>();
-  for (const a of todos) {
-    const bucket = buckets.get(a.bucket.id) ?? {
-      bucketId: a.bucket.id,
-      bucketName: a.bucket.name,
-      appUrl: a.bucket.app_url,
-      lists: [] as NormalizedList[],
-    };
-    let list = bucket.lists.find((l) => l.listId === a.parent.id);
-    if (!list) {
-      list = {
-        listId: a.parent.id,
-        title: a.parent.title,
-        appUrl: a.parent.app_url,
-        todos: [],
-      };
-      bucket.lists.push(list);
-    }
-    list.todos.push(toNormalized(a));
-    buckets.set(a.bucket.id, bucket);
-  }
-
-  return {
-    scope,
-    priorities,
-    groups: Array.from(buckets.values()),
-    filteredNonTodoCount,
-    fetchedAt: new Date().toISOString(),
-  };
-}
-
-/** Produce a short human-readable summary for the model's transcript. */
-export function myPlateSummary(p: MyPlatePayload): string {
-  const total = p.groups.reduce(
-    (n, g) => n + g.lists.reduce((m, l) => m + l.todos.length, 0),
-    0,
-  );
-  const projectCount = p.groups.length;
-  const pri = p.priorities.length;
-  const filteredNote =
-    p.filteredNonTodoCount > 0
-      ? ` (${p.filteredNonTodoCount} non-todo items filtered)`
-      : '';
-  return `My plate — scope=${p.scope}, ${total} items across ${projectCount} project${
-    projectCount === 1 ? '' : 's'
-  }, ${pri} priorit${pri === 1 ? 'y' : 'ies'}${filteredNote}.`;
-}
-
-/** Map a thrown error into a CallToolResult carrying a MyPlateErrorPayload. */
-export function toMyPlateError(
-  err: unknown,
-  scope: MyPlateScope,
-): CallToolResult {
-  let message = 'Unknown error';
-  let retryAfterSec: number | undefined;
-  if (err instanceof BasecampRateLimitError) {
-    message = `Basecamp rate limit hit.`;
-    retryAfterSec = err.retryAfterSec;
-  } else if (err instanceof BasecampAuthError) {
-    message = `Basecamp connector needs to be reconnected: ${err.message}`;
-  } else if (err instanceof BasecampNotFoundError) {
-    message = 'Basecamp resource not found';
-  } else if (err instanceof BasecampApiError) {
-    message = `Basecamp API error (${err.status}): ${err.message}`;
-  } else if (err instanceof Error) {
-    message = err.message;
-  }
-  const payload: MyPlateErrorPayload = {
-    scope,
-    error: retryAfterSec === undefined ? { message } : { message, retryAfterSec },
-    fetchedAt: new Date().toISOString(),
-  };
-  return {
-    isError: true,
-    content: [{ type: 'text' as const, text: message }],
-    structuredContent: payload as unknown as Record<string, unknown>,
-  };
-}

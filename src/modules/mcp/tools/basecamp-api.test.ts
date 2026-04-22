@@ -8,8 +8,12 @@ import {
   BasecampNotFoundError,
   BasecampRateLimitError,
   getMyAssignments,
+  getMyReadings,
 } from './basecamp-api.js';
-import type { BasecampMyAssignmentsResponse } from '../../../lib/types.js';
+import type {
+  BasecampMyAssignmentsResponse,
+  BasecampReadingsResponse,
+} from '../../../lib/types.js';
 
 const originalFetch = globalThis.fetch;
 
@@ -230,5 +234,82 @@ describe('getMyAssignments', () => {
     expect(a.parent.id).toBe(100);
     expect(a.assignees).toEqual([{ id: 42, name: 'Me' }]);
     expect(a.priority).toBe(false);
+  });
+});
+
+describe('getMyReadings', () => {
+  let fetchMock: jest.MockedFunction<typeof fetch>;
+
+  beforeEach(() => {
+    fetchMock = jest.fn() as unknown as jest.MockedFunction<typeof fetch>;
+    globalThis.fetch = fetchMock;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const emptyBody: BasecampReadingsResponse = {
+    unreads: [],
+    reads: [],
+    memories: [],
+  };
+
+  test('hits /my/readings.json with the standard headers', async () => {
+    fetchMock.mockResolvedValueOnce(makeResponse({ body: emptyBody }));
+    await getMyReadings(makeCtx());
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://3.basecampapi.com/9999/my/readings.json');
+    const headers = (init as RequestInit).headers as Record<string, string>;
+    expect(headers['User-Agent']).toMatch(/^BasecampMCP \(/);
+    expect(headers.Accept).toBe('application/json');
+    expect(headers.Authorization).toBe('Bearer bearer-token');
+  });
+
+  test('returns { unreads, reads, memories } as-is', async () => {
+    const body: BasecampReadingsResponse = {
+      unreads: [
+        {
+          id: 1,
+          created_at: '2026-04-22T09:00:00.000Z',
+          updated_at: '2026-04-22T09:00:00.000Z',
+          section: 'mentions',
+          unread_count: 1,
+          unread_at: '2026-04-22T09:00:00.000Z',
+          read_at: null,
+          readable_sgid: 'abc',
+          title: 'Heads up',
+          type: 'Recording',
+          bucket_name: 'Project A',
+          creator: { id: 42, name: 'Katia' },
+          app_url: 'https://3.basecamp.com/9999/buckets/1/ping/1',
+        },
+      ],
+      reads: [],
+      memories: [],
+    };
+    fetchMock.mockResolvedValueOnce(makeResponse({ body }));
+
+    const out = await getMyReadings(makeCtx());
+    expect(out.unreads).toHaveLength(1);
+    expect(out.unreads[0].section).toBe('mentions');
+    expect(out.unreads[0].creator.name).toBe('Katia');
+    expect(out.reads).toEqual([]);
+    expect(out.memories).toEqual([]);
+  });
+
+  test('propagates BasecampRateLimitError on 429', async () => {
+    fetchMock.mockResolvedValueOnce(
+      makeResponse({ status: 429, headers: { 'Retry-After': '12' } }),
+    );
+    const err = await getMyReadings(makeCtx()).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BasecampRateLimitError);
+    expect((err as BasecampRateLimitError).retryAfterSec).toBe(12);
+  });
+
+  test('propagates BasecampAuthError when 401 persists', async () => {
+    fetchMock.mockResolvedValue(makeResponse({ status: 401 }));
+    await expect(getMyReadings(makeCtx())).rejects.toBeInstanceOf(
+      BasecampAuthError,
+    );
   });
 });

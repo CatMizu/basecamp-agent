@@ -5,6 +5,7 @@ import type { BasecampContext } from './auth-context.js';
 import type {
   BasecampAssignment,
   BasecampMyAssignmentsResponse,
+  BasecampReadingsResponse,
   MyPlateScope,
 } from '../../../lib/types.js';
 
@@ -314,4 +315,21 @@ export async function getMyAssignments(
       throw new Error(`Unknown scope: ${String(_exhaustive)}`);
     }
   }
+}
+
+// ─── My Notifications / Readings ────────────────────────────────────────
+
+/**
+ * Fetch the authenticated user's notification inbox — the "Hey!" menu.
+ * Returns unread + recently-read + memorized items in one payload; the
+ * dashboard uses `unreads` for the unread-by-section breakdown and the
+ * waiting-on-you list.
+ *
+ * Unreads are capped at 100 server-side, reads are paginated at 50/page.
+ * We request the first page only — enough for dashboard counts.
+ */
+export async function getMyReadings(
+  ctx: BasecampContext,
+): Promise<BasecampReadingsResponse> {
+  return bcFetch<BasecampReadingsResponse>(ctx, '/my/readings.json');
 }

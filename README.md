@@ -40,7 +40,7 @@ Claude will prompt automatically when a tool call fails with "reconnect" in the 
 
 **Write** — create a todo, mark a todo complete, post a message to a project's message board, post a campfire chat message.
 
-**Interactive** — `basecamp_my_plate` renders the authenticated user's assigned todos across all projects as an [MCP App](https://modelcontextprotocol.io/extensions/apps/overview) (sandboxed iframe UI) with scope tabs, priority pinning, and inline complete. See [MCP App: `basecamp_my_plate`](#mcp-app-basecamp_my_plate).
+**Interactive** — `basecamp_my_plate` renders a read-only Basecamp dashboard as an [MCP App](https://modelcontextprotocol.io/extensions/apps/overview) (sandboxed iframe UI): KPI cards, today's todos, unread breakdown, projects, 7-day upcoming load, waiting-on-you list. See [MCP App: `basecamp_my_plate`](#mcp-app-basecamp_my_plate).
 
 15 tools in total, prefixed `basecamp_`. Responses are capped at 25,000 characters; list tools paginate (`limit` / `offset`).
 
@@ -48,17 +48,25 @@ Claude will prompt automatically when a tool call fails with "reconnect" in the 
 
 ## MCP App: `basecamp_my_plate`
 
-`basecamp_my_plate` is an interactive MCP App tool (spec
+`basecamp_my_plate` is an MCP App tool (spec
 [MCP Apps 2026-01-26](https://modelcontextprotocol.io/extensions/apps/overview)).
 When invoked on a compatible host (Claude Desktop paid plan, Claude.ai, or the
 [`ext-apps` basic-host](https://github.com/modelcontextprotocol/ext-apps/tree/main/examples/basic-host)),
-the host mounts a sandboxed iframe showing the authenticated user's open todos grouped by
-project. Priorities are pinned at the top, scope tabs switch between Open / Completed /
-Overdue / Due today / …, and clicking a todo's checkbox dispatches `basecamp_complete_todo`
-back through the host.
+the host mounts a sandboxed iframe showing the authenticated user's Basecamp dashboard —
+at-a-glance status, no interaction.
 
-**Scopes:** `open` (default), `completed`, `overdue`, `due_today`, `due_tomorrow`,
-`due_later_this_week`, `due_next_week`, `due_later`.
+**Widgets:**
+
+- **KPI row** — overdue, due today, unread signals, @you · waiting.
+- **Today** — a list of today's due todos with project and priority flag.
+- **Unread by type** — stacked-bar breakdown of `/my/readings.json` sections (@you / pings / chats / messages) + oldest unread.
+- **Open todos by project** — bars sorted desc; 🔥 tag per project with overdue or due-today items.
+- **Upcoming load · next 7 days** — histogram of due dates from today forward.
+- **Waiting on you** — top 5 mentions + pings sorted by waiting time, severity-coded.
+
+The dashboard fans out 7 Basecamp API calls in parallel (`/my/assignments` at six scopes
+plus `/my/readings.json`) on each invocation — well within the 50-req / 10-sec rate limit.
+It takes no arguments (any are ignored for forward-compat with older prompts).
 
 **UI bundle:** built by `npm run build:ui` (Vite + `vite-plugin-singlefile`) to
 `dist/ui/my-plate.html` and served as the resource `ui://basecamp/my-plate`. `npm run build`

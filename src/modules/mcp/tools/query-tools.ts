@@ -9,13 +9,8 @@ import type {
   BasecampProject,
   BasecampTodo,
   BasecampTodolist,
-  MyPlateScope,
 } from '../../../lib/types.js';
-import {
-  bcFetch,
-  bcFetchOffsetLimit,
-  getMyAssignments,
-} from './basecamp-api.js';
+import { bcFetch, bcFetchOffsetLimit } from './basecamp-api.js';
 import { getBasecampCtx } from './auth-context.js';
 import type { BasecampContext } from './auth-context.js';
 import { registerAppTool } from '@modelcontextprotocol/ext-apps/server';
@@ -32,13 +27,15 @@ import {
   formatProjectSummary,
   formatTodo,
   formatTodolist,
-  myPlateSummary,
-  normalizeMyPlate,
   paginate,
   plainText,
-  toMyPlateError,
   toolError,
 } from './utils.js';
+import {
+  buildDashboard,
+  dashboardSummary,
+  toDashboardError,
+} from './dashboard.js';
 
 const MY_PLATE_RESOURCE_URI = 'ui://basecamp/my-plate';
 
@@ -70,24 +67,27 @@ const detailResponseFormat = {
 };
 
 /**
- * Pure handler for basecamp_my_plate. Takes args + a constructed
- * BasecampContext, returns a CallToolResult. Exported so tests can call it
- * without instantiating an McpServer or reaching into SDK internals.
+ * Pure handler for basecamp_my_plate. Fans out to /my/assignments/* and
+ * /my/readings.json to build a dashboard payload (no args). Exported so
+ * tests can call it without instantiating an McpServer.
  */
-export async function handleMyPlate(
-  args: { scope?: MyPlateScope },
+export async function handleDashboard(
+  _args: unknown,
   ctx: BasecampContext,
 ): Promise<CallToolResult> {
-  const scope: MyPlateScope = args.scope ?? 'open';
   try {
-    const raw = await getMyAssignments(ctx, scope);
-    const payload = normalizeMyPlate(raw, scope);
+    const payload = await buildDashboard(ctx);
     return {
-      content: [{ type: 'text' as const, text: myPlateSummary(payload) }],
+      content: [{ type: 'text' as const, text: dashboardSummary(payload) }],
       structuredContent: payload as unknown as Record<string, unknown>,
     };
   } catch (err) {
-    return toMyPlateError(err, scope);
+    const payload = toDashboardError(err);
+    return {
+      isError: true,
+      content: [{ type: 'text' as const, text: payload.error.message }],
+      structuredContent: payload as unknown as Record<string, unknown>,
+    };
   }
 }
 
@@ -788,47 +788,36 @@ Examples:
     },
   );
 
-  // ─── basecamp_my_plate (MCP App) ─────────────────────────────────────
+  // ─── basecamp_my_plate (MCP App · Dashboard) ─────────────────────────
   //
-  // No outputSchema: MyPlatePayload has a deeply-nested, partially-recursive
-  // shape (groups → lists → todos) that's cumbersome to express in zod.
-  // Type-level enforcement + the consuming UI treating it as a contract is
-  // sufficient for v1.
+  // Renders a read-only Basecamp dashboard: 4 KPI cards (overdue / due today
+  // / unread / waiting on you), today's list, unread-by-section breakdown,
+  // open-todos-by-project bars, 7-day upcoming load, and a waiting-on-you
+  // top-5. No args, no interactions — pure at-a-glance status.
+  //
+  // No outputSchema: DashboardPayload is deeply nested (day arrays, waiting
+  // items, project stats) and expressing every field in zod adds drift
+  // without catching anything the UI contract doesn't already enforce.
   registerAppTool(
     server,
     'basecamp_my_plate',
     {
-      title: "What's on my plate",
-      description: `Show todos assigned to the authenticated user across all projects as an interactive MCP App.
+      title: "My Basecamp dashboard",
+      description: `Render the authenticated user's Basecamp dashboard as an MCP App: 4 KPI cards (overdue / due today / unread / waiting on you), today's todos, unread breakdown by section, open todos by project, a 7-day upcoming load chart, and a "waiting on you" top-5. Read-only — no interactions.
 
-Args:
-  - scope ('open'|'completed'|'overdue'|'due_today'|'due_tomorrow'|'due_later_this_week'|'due_next_week'|'due_later'), default 'open'.
+Args: none. Any args are ignored (kept permissive for forward-compat with older prompts).
 
 Returns:
-  MCP App UI (grouped by project, priorities pinned, clickable scope tabs, inline complete)
-  plus a text summary for transcript use.
+  MCP App UI with the 5 dashboard widgets, plus a one-line text summary for the transcript.
 
 Examples:
-  - "What's on my plate?" → scope=open
-  - "What's overdue?" → scope=overdue
-  - "What did I finish this week?" → scope=completed`,
-      inputSchema: z
-        .object({
-          scope: z
-            .enum([
-              'open',
-              'completed',
-              'overdue',
-              'due_today',
-              'due_tomorrow',
-              'due_later_this_week',
-              'due_next_week',
-              'due_later',
-            ])
-            .default('open')
-            .describe("Assignment bucket to query; 'open' is all active, others map to Basecamp due/completed endpoints."),
-        })
-        .strict().shape,
+  - "What's on my plate?"
+  - "Show me my Basecamp dashboard."
+  - "How many things am I behind on?"`,
+      // Empty schema: zod's default `strip` mode silently drops unknown keys,
+      // so older prompts that still pass `scope: "overdue"` etc. reach the
+      // handler as `{}` rather than failing validation. No args are read.
+      inputSchema: {},
       annotations: {
         readOnlyHint: true,
         openWorldHint: true,
@@ -837,7 +826,7 @@ Examples:
     },
     async (args, extra) => {
       const ctx = getBasecampCtx(extra.authInfo?.extra);
-      return handleMyPlate(args as { scope?: MyPlateScope }, ctx);
+      return handleDashboard(args, ctx);
     },
   );
 }
