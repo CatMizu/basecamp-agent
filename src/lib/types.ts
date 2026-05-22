@@ -21,7 +21,9 @@ export interface BasecampPerson {
 export interface BasecampDockEntry {
   id: number;
   title: string;
-  name: string; // "todoset", "message_board", "chat", "schedule", "vault", ...
+  // "todoset", "message_board", "chat", "schedule", "vault",
+  // "kanban_board" (Basecamp's card_table feature), ...
+  name: string;
   enabled: boolean;
   position: number | null;
   url: string;
@@ -77,6 +79,74 @@ export interface BasecampTodo {
   url: string;
   app_url: string;
   parent?: { id: number; title: string; type: string; url: string };
+  bucket?: { id: number; name: string; type: string };
+}
+
+/**
+ * One column on a card table (kanban board). The `type` discriminator
+ * distinguishes the four roles a column can play:
+ *   - `Kanban::Triage`      — the leftmost "inbox" column (one per board)
+ *   - `Kanban::Column`      — a regular workflow column (most boards have several)
+ *   - `Kanban::NotNowColumn`— the parked/archive column (one per board)
+ *   - `Kanban::DoneColumn`  — the terminal/done column (one per board)
+ */
+export interface BasecampCardColumn {
+  id: number;
+  title: string;
+  type: string;
+  status: string;
+  color: string | null;
+  description: string | null;
+  position?: number;
+  cards_count: number;
+  comment_count: number;
+  cards_url: string;
+  url: string;
+  app_url: string;
+  created_at: string;
+  updated_at: string;
+  parent?: { id: number; title: string; type: string; url: string; app_url: string };
+  bucket?: { id: number; name: string; type: string };
+}
+
+/** The kanban board itself (Basecamp calls these "card_tables" in the URL). */
+export interface BasecampCardTable {
+  id: number;
+  title: string;
+  type: string; // "Kanban::Board"
+  status: string;
+  created_at: string;
+  updated_at: string;
+  url: string;
+  app_url: string;
+  lists: BasecampCardColumn[];
+  bucket?: { id: number; name: string; type: string };
+}
+
+/**
+ * One card on a card_table column. Basecamp's API also calls these "todos"
+ * in several URL paths (notably `completion_url` → `/todos/{id}/completion`),
+ * but the resource is `Kanban::Card`.
+ */
+export interface BasecampCard {
+  id: number;
+  title: string;
+  type: string; // "Kanban::Card"
+  status: string;
+  content?: string;        // HTML
+  description?: string | null; // typically duplicates content
+  completed: boolean;
+  due_on: string | null;
+  assignees?: BasecampPerson[];
+  creator?: BasecampPerson;
+  position?: number;
+  comments_count?: number;
+  comment_count?: number;
+  created_at: string;
+  updated_at: string;
+  url: string;
+  app_url: string;
+  parent?: { id: number; title: string; type: string; url: string; app_url: string };
   bucket?: { id: number; name: string; type: string };
 }
 

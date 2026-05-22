@@ -4,6 +4,9 @@ import {
   ResponseFormat,
 } from '../../../constants.js';
 import type {
+  BasecampCard,
+  BasecampCardColumn,
+  BasecampCardTable,
   BasecampChat,
   BasecampChatLine,
   BasecampDockEntry,
@@ -208,6 +211,56 @@ export function formatCampfireSummary(c: BasecampChat): string {
 
 export function formatCampfireLine(l: BasecampChatLine): string {
   return `[${l.created_at.substring(11, 16)}] ${l.creator.name}: ${plainText(l.content)}`;
+}
+
+export function formatCardTable(ct: BasecampCardTable): string {
+  const cols = ct.lists
+    .map(
+      (c) =>
+        `  - **${c.title}** (${c.type}) — ${c.cards_count} card${c.cards_count === 1 ? '' : 's'} (id: ${c.id})`,
+    )
+    .join('\n');
+  return [
+    `# ${ct.title}`,
+    `Status: ${ct.status}   ·   Type: ${ct.type}`,
+    '',
+    `**Columns (${ct.lists.length}):**`,
+    cols,
+    '',
+    `Web: ${ct.app_url}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+export function formatCardColumn(c: BasecampCardColumn): string {
+  return `- **${c.title}** (${c.type}) — ${c.cards_count} card${c.cards_count === 1 ? '' : 's'}\n  id: ${c.id}   ${c.app_url}`;
+}
+
+export function formatCard(c: BasecampCard): string {
+  const status = c.completed ? '[x]' : '[ ]';
+  const trashed = c.status === 'trashed' ? ' [trashed]' : '';
+  const due = c.due_on ? ` (due ${c.due_on})` : '';
+  const assignees = c.assignees?.length
+    ? ` — assigned to ${c.assignees.map((a) => a.name).join(', ')}`
+    : '';
+  return `- ${status} **${c.title}**${trashed}${due}${assignees}\n  id: ${c.id}   ${c.app_url}`;
+}
+
+export function formatCardDetail(c: BasecampCard): string {
+  const trashed = c.status === 'trashed' ? ' (TRASHED)' : '';
+  const lines = [
+    `# ${c.title}${trashed}`,
+    `${c.completed ? 'Completed' : 'Open'}${c.due_on ? `   ·   due ${c.due_on}` : ''}`,
+    c.parent ? `In column: ${c.parent.title} (${c.parent.type})` : '',
+    c.creator ? `Created by ${c.creator.name} on ${c.created_at.substring(0, 10)}` : '',
+    c.assignees?.length ? `Assignees: ${c.assignees.map((a) => a.name).join(', ')}` : '',
+    '',
+    plainText(c.content ?? c.description ?? ''),
+    '',
+    `Web: ${c.app_url}`,
+  ];
+  return lines.filter(Boolean).join('\n');
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────
