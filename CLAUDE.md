@@ -85,6 +85,9 @@ Three modules, one process:
 - `foreign_keys = ON`, WAL journal.
 - `token_exchanges.mcp_access_token → mcp_installations.access_token` uses
   `ON UPDATE CASCADE` because `exchangeRefreshToken` rotates the PK.
+- `oauth_clients.expires_at` is a GC hint only. `cleanupExpired` never
+  deletes a client that owns an `mcp_installations` row (the FK cascade
+  would kill the connector), and client secrets never expire.
 - All sqlite-store functions accept an optional `db` parameter for test
   isolation; tests use `createTestDb()` + `setDbForTesting()`.
 - Migrations are forward-only in `migrations/*.sql`, applied by the DB

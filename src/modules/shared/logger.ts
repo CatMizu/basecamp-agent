@@ -65,8 +65,20 @@ class StructuredLogger {
   }
 
   middleware() {
-    return (req: Request, _res: Response, next: NextFunction) => {
+    return (req: Request, res: Response, next: NextFunction) => {
       const context = this.extractTraceContext(req);
+      const startedAt = Date.now();
+      // One status line per request (also fires for aborted responses). The
+      // SDK's OAuth handlers reject silently, so this is the only trace of a
+      // failed /token or /register call.
+      res.once('close', () => {
+        this.runWithContext(context, () => {
+          this.info('Request completed', {
+            status: res.statusCode,
+            durationMs: Date.now() - startedAt,
+          });
+        });
+      });
       this.runWithContext(context, () => {
         next();
       });

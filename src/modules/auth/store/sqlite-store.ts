@@ -12,9 +12,17 @@ import type {
   TokenExchange,
 } from '../types.js';
 
+/**
+ * Garbage-collection window for client registrations that never produced an
+ * installation (claude.ai registers a fresh client on every connect). A
+ * client that owns an mcp_installations row is never expired — deleting it
+ * would cascade-delete the installation and kill a live connector.
+ */
 const CLIENT_TTL_SEC = 30 * 24 * 60 * 60; // 30 days
 const PENDING_AUTH_TTL_SEC = 10 * 60;
 const TOKEN_EXCHANGE_TTL_SEC = 10 * 60;
+/** Basecamp flows with no installation after this long are abandoned logins. */
+const ORPHAN_FLOW_TTL_SEC = 60 * 60;
 
 function now(): number {
   return Math.floor(Date.now() / 1000);
@@ -47,19 +55,21 @@ export function getClient(
   clientId: string,
   db: BetterSqlite3Database = getDb(),
 ): OAuthClientInformationFull | undefined {
+  // expires_at is only a GC hint (see cleanupExpired); a row that still
+  // exists is a valid client.
   const row = db
-    .prepare(
-      `SELECT client_metadata, expires_at FROM oauth_clients WHERE client_id = ?`,
-    )
-    .get(clientId) as { client_metadata: string; expires_at: number } | undefined;
+    .prepare(`SELECT client_metadata FROM oauth_clients WHERE client_id = ?`)
+    .get(clientId) as { client_metadata: string } | undefined;
 
   if (!row) return undefined;
-  if (row.expires_at < now()) {
-    db.prepare(`DELETE FROM oauth_clients WHERE client_id = ?`).run(clientId);
-    return undefined;
+  const client = JSON.parse(row.client_metadata) as OAuthClientInformationFull;
+  // Client secrets never expire here (see AuthModule's clientSecretExpirySeconds).
+  // Rows registered before that setting still carry the SDK's 30-day value,
+  // which the SDK's authenticateClient would enforce at /token.
+  if (client.client_secret_expires_at) {
+    client.client_secret_expires_at = 0;
   }
-
-  return JSON.parse(row.client_metadata) as OAuthClientInformationFull;
+  return client;
 }
 
 export function getClientWithMeta(
@@ -510,5 +520,17 @@ export function cleanupExpired(db: BetterSqlite3Database = getDb()): void {
   const t = now();
   db.prepare(`DELETE FROM pending_authorizations WHERE expires_at < ?`).run(t);
   db.prepare(`DELETE FROM token_exchanges WHERE expires_at < ?`).run(t);
-  db.prepare(`DELETE FROM oauth_clients WHERE expires_at < ?`).run(t);
+  // Never delete a client that owns an installation: the FK cascade would
+  // take the installation (and the connector) with it.
+  db.prepare(
+    `DELETE FROM oauth_clients
+      WHERE expires_at < ?
+        AND client_id NOT IN (SELECT client_id FROM mcp_installations)`,
+  ).run(t);
+  // Basecamp tokens from logins that never became an installation.
+  db.prepare(
+    `DELETE FROM basecamp_oauth_flows
+      WHERE created_at < ?
+        AND flow_id NOT IN (SELECT flow_id FROM mcp_installations)`,
+  ).run(t - ORPHAN_FLOW_TTL_SEC);
 }

@@ -215,4 +215,78 @@ describe('sqlite-store', () => {
     cleanupExpired();
     expect(getClient('client-1')).toBeUndefined();
   });
+
+  test('getClient: a stored client_secret_expires_at is neutralised (secrets never expire)', () => {
+    // Clients registered before the fix carry the SDK default (30 days).
+    saveClient({ ...makeClient(), client_secret: 's3cret', client_secret_expires_at: 123 });
+    expect(getClient('client-1')?.client_secret_expires_at).toBe(0);
+  });
+
+  test('getClient: an expired registration is still returned (expiry is GC-only)', () => {
+    saveClient(makeClient());
+    db.prepare(`UPDATE oauth_clients SET expires_at = 1 WHERE client_id = ?`).run('client-1');
+    expect(getClient('client-1')?.client_id).toBe('client-1');
+  });
+
+  test('cleanupExpired: keeps an expired client that owns an installation', () => {
+    saveClient(makeClient());
+    upsertIdentity({ identityId: 1, email: 'e', firstName: null, lastName: null });
+    saveOAuthFlow({
+      flowId: 'f1',
+      identityId: 1,
+      accessToken: 'a',
+      refreshToken: 'r',
+      expiresAt: 9_999_999_999,
+      status: 'active',
+    });
+    saveMcpInstallation({
+      accessToken: 'mcp-a',
+      refreshToken: 'mcp-r',
+      clientId: 'client-1',
+      identityId: 1,
+      accountId: 5,
+      flowId: 'f1',
+      expiresAt: 9_999_999_999,
+    });
+    db.prepare(`UPDATE oauth_clients SET expires_at = 1 WHERE client_id = ?`).run('client-1');
+
+    cleanupExpired();
+    expect(getClient('client-1')).toBeDefined();
+    expect(readMcpInstallationByAccess('mcp-a')).toBeDefined();
+  });
+
+  test('cleanupExpired: removes orphaned Basecamp flows older than an hour', () => {
+    upsertIdentity({ identityId: 1, email: 'e', firstName: null, lastName: null });
+    const flow = (flowId: string) =>
+      saveOAuthFlow({
+        flowId,
+        identityId: 1,
+        accessToken: 'a',
+        refreshToken: 'r',
+        expiresAt: 9_999_999_999,
+        status: 'active',
+      });
+    flow('orphan-old');
+    flow('orphan-new');
+    flow('owned');
+    saveClient(makeClient());
+    saveMcpInstallation({
+      accessToken: 'mcp-a',
+      refreshToken: 'mcp-r',
+      clientId: 'client-1',
+      identityId: 1,
+      accountId: 5,
+      flowId: 'owned',
+      expiresAt: 9_999_999_999,
+    });
+    const twoHoursAgo = Math.floor(Date.now() / 1000) - 2 * 3600;
+    db.prepare(`UPDATE basecamp_oauth_flows SET created_at = ? WHERE flow_id = 'orphan-old'`).run(
+      twoHoursAgo,
+    );
+
+    cleanupExpired();
+    expect(readOAuthFlow('orphan-old')).toBeUndefined();
+    expect(readOAuthFlow('orphan-new')).toBeDefined();
+    expect(readOAuthFlow('owned')).toBeDefined();
+  });
 });
