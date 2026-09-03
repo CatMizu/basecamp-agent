@@ -58,6 +58,9 @@ export class AuthModule {
         },
         clientRegistrationOptions: {
           rateLimit: { windowMs: 60000, limit: 60 },
+          // 0 = client secrets never expire (RFC 7591). The SDK default of
+          // 30 days made every refresh fail with invalid_client at day 30.
+          clientSecretExpirySeconds: 0,
         },
       }),
     );
